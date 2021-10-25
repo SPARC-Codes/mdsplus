@@ -260,7 +260,9 @@ class MARTE2_COMPONENT(Device):
 # add debug definition. When 'ENABLED' input and outputs will be printed via LoggetDataSOurce
         parts.append(
             {'path': ':PRINT_DEBUG', 'type': 'text', 'value': 'DISABLED'})
-
+# add notify stop flag. When 'ENABLED' a Stop command is sent ti the corresponding GAM/DataSource
+        parts.append(
+            {'path': ':NOTIFY_STOP', 'type': 'text', 'value': 'DISABLED'})
 #        for part in parts:
 #          print(part)
 
@@ -2798,9 +2800,13 @@ class MARTE2_COMPONENT(Device):
         dataSources.append(dataSourceText)
         return outPeriod
 
-    def getMarteInfo(self, threadMap, gams, dataSources, gamList, typeDicts):
-        self.prepareMarteInfo()
+    def getMarteInfo(self, threadMap, gams, dataSources, gamList, typeDicts, notifyStopList):
         mode = self.mode.data()
+        if self.notify_stop.data() == 'ENABLED':
+          if mode == MARTE2_COMPONENT.MODE_GAM:
+            notifyStopList.append({'isGam': True, 'name' : self.convertPath(self.getFullPath())})
+          else:
+            notifyStopList.append({'isGam': False, 'name' : self.convertPath(self.getFullPath())})
         if mode == MARTE2_COMPONENT.MODE_GAM:
             return self.getMarteGamInfo(threadMap, gams, dataSources, gamList, typeDicts)
         elif mode == MARTE2_COMPONENT.MODE_SYNCH_INPUT:

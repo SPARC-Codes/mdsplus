@@ -106,6 +106,7 @@ class MARTE2_SUPERVISOR(Device):
             retGams = []
             threadMap = {}
             typeDicts = []
+            notifyStopList = []
 
         # first iteration to get threadMap
             for state in range(numStates):
@@ -163,7 +164,7 @@ class MARTE2_SUPERVISOR(Device):
                                 # try:
                                 gamInstance.prepareMarteInfo()
                                 currPeriod = gamInstance.getMarteInfo(
-                                    threadMap, retGams, retData, gamList, typeDicts)
+                                    threadMap, retGams, retData, gamList, typeDicts, notifyStopList)
                                 # except:
                                 # return 'Cannot get timebase for ' + gam, {},{}
                                 gamNids.append(currGamNode.getNid())
@@ -177,7 +178,7 @@ class MARTE2_SUPERVISOR(Device):
                                 dummyGams = []
                                 dummyData = []
                                 gamInstance.getMarteInfo(
-                                    threadMap, dummyGams, dummyData, gamList, typeDicts)
+                                    threadMap, dummyGams, dummyData, gamList, typeDicts, notifyStopList)
                             gamNames += gamList
 # TIMINGS
                     if threadPeriod == 0:
@@ -198,7 +199,7 @@ class MARTE2_SUPERVISOR(Device):
             info['gams'] = retGams
             info['data_sources'] = retData
             info['name'] = self.getNode('name').data()
-            return error, info, threadMap, typeDicts
+            return error, info, threadMap, typeDicts, notifyStopList
         except Exception as inst:
             print(traceback.format_exc())
      #       return inst.args[0], None, None
@@ -335,7 +336,7 @@ class MARTE2_SUPERVISOR(Device):
 
     def buildConfiguration(self):
         print('START BUILD')
-        error, info, threadMap, typeDicts = self.getInfo()
+        error, info, threadMap, typeDicts, notifyStopList = self.getInfo()
         if error != '':
             return 0
         confText = self.declareTypes(typeDicts)
@@ -436,8 +437,8 @@ class MARTE2_SUPERVISOR(Device):
         confText += '    +RUN = {\n'
         confText += '        Class = ReferenceContainer\n'
         confText += '        +GOTOIDLE = {\n'
-        confText += '           Class = StateMachineEvent\n'
-        confText += '           NextState = "IDLE"\n'
+        confText += '            Class = StateMachineEvent\n'
+        confText += '            NextState = "IDLE"\n'
         confText += '            NextStateError = "IDLE"\n'
         confText += '            Timeout = 0         \n'
         confText += '            +ChangeToIdleMsg = {\n'
@@ -463,7 +464,56 @@ class MARTE2_SUPERVISOR(Device):
         confText += '                Mode = ExpectsReply\n'
         confText += '            }\n'
         confText += '        }   \n'
+        confText += '        +GOTOSTOP = {\n'
+        confText += '           Class = StateMachineEvent\n'
+        confText += '           NextState = "STOP"\n'
+        confText += '           NextStateError = "STOP"\n'
+        confText += '           Timeout = 0         \n'
+        for gamStopInfo in notifyStopList:
+          print(gamStopInfo)
+          confText += '            +'+gamStopInfo['name']+'StopMsg = {\n'
+          confText += '                Class = Message\n'
+          if gamStopInfo['isGam']:
+            confText += '                Destination = '+info['name']+'.Functions.'+gamStopInfo['name']+'\n'
+          else:
+            confText += '                Destination = '+info['name']+'.Data.'+gamStopInfo['name']+'\n'
+          confText += '                Mode = ExpectsReply\n'
+          confText += '                Function = StopRun\n'
+          confText += '            }\n'
+
+        confText += '        }\n'
         confText += '    }\n'
+        confText += '    +STOP = {\n'
+        confText += '        Class = ReferenceContainer\n'
+        confText += '        +GOTOIDLE = {\n'
+        confText += '            Class = StateMachineEvent\n'
+        confText += '            NextState = "IDLE"\n'
+        confText += '            NextStateError = "IDLE"\n'
+        confText += '            Timeout = 0         \n'
+        confText += '            +ChangeToIdleMsg = {\n'
+        confText += '                Class = Message\n'
+        confText += '                Destination = '+info['name']+'\n'
+        confText += '                Mode = ExpectsReply\n'
+        confText += '                Function = PrepareNextState\n'
+        confText += '                +Parameters = {\n'
+        confText += '                    Class = ConfigurationDatabase\n'
+        confText += '                    param1 = Idle\n'
+        confText += '                }\n'
+        confText += '           }\n'
+        confText += '            +StopCurrentStateExecutionMsg = {\n'
+        confText += '                Class = Message\n'
+        confText += '                Destination = '+info['name']+'\n'
+        confText += '                Function = StopCurrentStateExecution\n'
+        confText += '                Mode = ExpectsReply\n'
+        confText += '            }\n'
+        confText += '           +StartNextStateExecutionMsg = {\n'
+        confText += '                Class = Message\n'
+        confText += '                Destination = '+info['name']+'\n'
+        confText += '                Function = StartNextStateExecution\n'
+        confText += '                Mode = ExpectsReply\n'
+        confText += '            }\n'
+        confText += '        }   \n'
+        confText += '    }   \n'
         confText += '}   \n'
 
         confText += '$'+info['name']+' = {\n'
@@ -592,6 +642,12 @@ class MARTE2_SUPERVISOR(Device):
         Event.seteventRaw(marteName, np.frombuffer(
             eventString1.encode(), dtype=np.uint8))
 
+    def gotostop(self):
+        marteName = self.getNode('name').data()
+        eventString1 = 'StateMachine:GOTOSTOP'
+        Event.seteventRaw(marteName, np.frombuffer(
+            eventString1.encode(), dtype=np.uint8))
+
     def gotoidle(self):
         marteName = self.getNode('name').data()
         eventString1 = 'StateMachine:GOTOIDLE'
@@ -690,7 +746,7 @@ class MARTE2_SUPERVISOR(Device):
             except:
                 return 'Device ' + gamInstance.getPath() + ' is not a MARTe2 device'
 
-        error, info, threadMap, typeDicts = self.getInfo()
+        error, info, threadMap, typeDicts, notifyStopList = self.getInfo()
         if error != '':
             return error
         for gamInstance in gamInstances:
